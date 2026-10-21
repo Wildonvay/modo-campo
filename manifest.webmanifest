@@ -1,0 +1,17 @@
+{
+  "name": "Modo Campo · Prescrição de Fertilidade",
+  "short_name": "Modo Campo",
+  "description": "Mapas de fertilidade e prescrição no campo, com a posição do GPS. Uma nova plataforma, by Wildonvay Balieiro Filho.",
+  "lang": "pt-BR",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b3a2b",
+  "theme_color": "#0b3a2b",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
