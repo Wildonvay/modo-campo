@@ -1,6 +1,6 @@
 /* Modo Campo · service worker: o app funciona sem sinal (cache do próprio app) e guarda as imagens
    de satélite e fontes já vistas. A versão muda a cada build para o app atualizar. */
-const VERSAO = 'v2.3.202610211822';
+const VERSAO = 'v2.5.202610221817';
 const CACHE_APP = 'modo-campo-app-' + VERSAO;
 const CACHE_RT = 'modo-campo-runtime';
 const APP_FILES = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './icon-maskable-512.png', './apple-touch-icon.png'];

@@ -1672,6 +1672,17 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     { id: 'znso4', nome: 'Sulfato de zinco', cat: 'micro', Zn: 20, S: 10, preco: 0, fonte: 'Referência de mercado (validar)' },
     { id: 'mnso4', nome: 'Sulfato de manganês', cat: 'micro', Mn: 26, preco: 0, fonte: 'Referência de mercado (validar)' },
     { id: 'cuso4', nome: 'Sulfato de cobre', cat: 'micro', Cu: 25, preco: 0, fonte: 'Referência de mercado (validar)' },
+    // fontes nitrogenadas (garantias mínimas usuais no Brasil — conferir no rótulo do produto comprado)
+    { id: 'ureia', nome: 'Ureia', cat: 'nitrogenado', N: 45, preco: 0, fonte: 'Garantia mínima 45% N (ureia agrícola granulada/perolada). Sujeita a perda por volatilização em cobertura sem incorporação ou chuva.' },
+    { id: 'ureia_nbpt', nome: 'Ureia protegida (NBPT / revestida)', cat: 'nitrogenado', N: 45, preco: 0, fonte: 'Ureia com inibidor de urease ou revestimento: mesmo teor de N (45%), menor volatilização em cobertura.' },
+    { id: 'sulfato_amonio', nome: 'Sulfato de amônio', cat: 'nitrogenado', N: 21, S: 23, preco: 0, fonte: 'Garantias usuais 20–21% N e 22–24% S (cristalizado/granulado). Fonte de S; acidifica mais o solo que a ureia.' },
+    { id: 'nitrato_amonio', nome: 'Nitrato de amônio', cat: 'nitrogenado', N: 33, preco: 0, fonte: 'Garantia 32–34% N (metade nítrico, metade amoniacal); baixa volatilização. Produto controlado.' },
+    { id: 'nitrocalcio', nome: 'Nitrato de amônio e cálcio (CAN 27)', cat: 'nitrogenado', N: 27, CaO: 5.6, preco: 0, fonte: 'Garantia típica 27% N com ~4% Ca (5,6% CaO); menor acidificação e baixa volatilização.' },
+    { id: 'nitrato_calcio', nome: 'Nitrato de cálcio', cat: 'nitrogenado', N: 15.5, CaO: 26, preco: 0, fonte: 'Garantia 15,5% N e 19% Ca (26% CaO); todo o N nítrico — hortaliças, fertirrigação.' },
+    { id: 'nitrato_potassio', nome: 'Nitrato de potássio', cat: 'nitrogenado', N: 13, K2O: 44, preco: 0, fonte: 'Garantia 13% N e 44–46% K₂O; fertirrigação e hortaliças (fornece K sem cloreto).' },
+    { id: 'dap', nome: 'DAP (18-46-00)', cat: 'fosfatado', N: 18, P2O5: 45, preco: 0, fonte: 'Fosfato diamônico: 18% N e 45–46% P₂O₅. O N do DAP/MAP no plantio é descontado do N de plantio.' },
+    { id: 'uran32', nome: 'URAN 32 (UAN, solução)', cat: 'nitrogenado', N: 32, densidade: 1.32, preco: 0, fonte: 'Solução de ureia + nitrato de amônio, 32% N em massa (≈ 50% do N como ureia, 25% amoniacal, 25% nítrico); densidade ≈ 1,32 kg/L → 1 L ≈ 0,42 kg de N. Aplicação com pulverizador (bicos de jato/filete) ou fertirrigação; preço em R$/t do produto.' },
+    { id: 'uan28', nome: 'UAN 28 (solução)', cat: 'nitrogenado', N: 28, densidade: 1.28, preco: 0, fonte: 'Solução ureia + nitrato de amônio, 28% N em massa; densidade ≈ 1,28 kg/L → 1 L ≈ 0,36 kg de N.' },
   ];
 
   // ------------------------------------------------------------------------------------
@@ -1721,6 +1732,31 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   const MICRO_DOSES = { // kg/ha do elemento por classe [baixo, médio, adequado] — premissa (Galrão 2004, a lanço)
     B: [2, 1, 0], Zn: [6, 3, 0], Cu: [2, 1, 0], Mn: [6, 3, 0], S: [30, 20, 0],
   };
+  /** Parâmetros padrão do módulo de nitrogênio (premissas a validar). */
+  RE.NIT_DEFAULT = () => ({
+    metodo: 'produtividade',   // 'produtividade' (fator × produtividade esperada) | 'fixo' (dose total) | 'nenhum'
+    fator: 20,                 // kg de N por tonelada de produto colhido esperado
+    doseFixa: 120,             // kg N/ha (método fixo)
+    plantio: 30,               // kg N/ha no plantio/semeadura (uniforme)
+    parcelas: 2,               // nº de aplicações em cobertura (divisão igual; informativo)
+    ajusteMO: { ativo: true, classes: [{ ate: 1.5, kg: 20 }, { ate: 3, kg: 0 }, { ate: 5, kg: -20 }, { ate: 999, kg: -40 }] }, // kg N/ha somados conforme a MO (%) da célula
+    creditoAnterior: 0,        // kg N/ha descontados pela cultura anterior (ex.: 20 após soja)
+    creditoFosfato: true,      // desconta do N de plantio o N da fonte fosfatada (MAP/DAP)
+    produtoPlantio: 'ureia', produtoCobertura: 'ureia',
+    maxTotal: 0,               // teto de N total (kg/ha); 0 = sem teto
+  });
+  /**
+   * Completa uma cultura gravada por versões anteriores (sessões/presets sem o módulo de nitrogênio):
+   * cultura padrão → parâmetros de N da versão atual; cultura personalizada → N desligado (o usuário ativa).
+   */
+  RE.ensureCrop = function (crop) {
+    if (!crop || typeof crop !== 'object') return crop;
+    if (!crop.nitrogenio) {
+      const def = (RE.CROPS_DEFAULT || []).find((c) => c.id === crop.id);
+      crop.nitrogenio = def ? RE.deepClone(def.nitrogenio) : Object.assign(RE.NIT_DEFAULT(), { metodo: 'nenhum' });
+    } else crop.nitrogenio = Object.assign(RE.NIT_DEFAULT(), crop.nitrogenio);
+    return crop;
+  };
   function baseCrop(o) {
     const c = {
       id: o.id, nome: o.nome, grupo: o.grupo, status: 'a validar', fonte: o.fonte,
@@ -1753,6 +1789,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         Mn: Object.assign({ ativo: false, doses: MICRO_DOSES.Mn.slice(), produto: 'mnso4' }, (o.micros || {}).Mn),
         S: Object.assign({ ativo: true, doses: MICRO_DOSES.S.slice(), produto: 'gesso' }, (o.micros || {}).S),
       },
+      nitrogenio: Object.assign(RE.NIT_DEFAULT(), o.nitrogenio || {}),
       exportacao: o.exportacao, // kg/t (macros) e g/t (micros) do produto colhido
       regras: Object.assign({}, o.regras || {}),
     };
@@ -1762,8 +1799,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   RE.CROPS_DEFAULT = [
     baseCrop({
       id: 'soja', nome: 'Soja', grupo: 'Grãos',
-      fonte: 'Exportação: planilha "EXTRACAO SOJA – auditada e corrigida" (Wehrmann). K/CTC 3,5%, manutenção ≈150 kg/ha KCl e faixa 150–200 kg/ha: planilha de potássio Wehrmann. V% 50 e P (NC×CT): Sousa & Lobato (Embrapa Cerrados, 2004). Ca/Mg na CTC, mt e X: premissas a validar.',
+      fonte: 'Exportação: planilha "EXTRACAO SOJA – auditada e corrigida" (Wehrmann). K/CTC 3,5%, manutenção ≈150 kg/ha KCl e faixa 150–200 kg/ha: planilha de potássio Wehrmann. V% 50 e P (NC×CT): Sousa & Lobato (Embrapa Cerrados, 2004). Ca/Mg na CTC, mt e X: premissas a validar. Nitrogênio: sem adubação (fixação biológica com Bradyrhizobium).',
       produtividade: { valor: 70, unidade: 'sc/ha', kgUn: 60 },
+      nitrogenio: { metodo: 'nenhum' },
       calagem: { caAlvo: 45, mgAlvo: 15, vAlvo: 50, mt: 20, X: 2 },
       potassio: { kAlvo: 3.5 },
       fosforo: { sistema: 'sequeiro' },
@@ -1772,33 +1810,46 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     }),
     baseCrop({
       id: 'milho', nome: 'Milho', grupo: 'Grãos',
-      fonte: 'V% 50 e P (NC×CT): Sousa & Lobato (Embrapa Cerrados, 2004). mt 15%/X 2 (5ª Aproximação, CFSEMG 1999). Exportação por tonelada de grão: valores de referência — validar.',
+      fonte: 'V% 50 e P (NC×CT): Sousa & Lobato (Embrapa Cerrados, 2004). mt 15%/X 2 (5ª Aproximação, CFSEMG 1999). Exportação por tonelada de grão: valores de referência — validar. Nitrogênio: ≈20 kg N/t de grão esperado (Embrapa Milho e Sorgo; Sousa & Lobato 2004: 60–150 kg N/ha em cobertura conforme produtividade), 30 kg N/ha no plantio, cobertura em 2 parcelas (V4–V6 e V8); ajuste por MO nos moldes do Manual RS/SC (CQFS 2016) — premissas a validar.',
       produtividade: { valor: 10, unidade: 't/ha', kgUn: 1000 },
+      nitrogenio: { fator: 20, plantio: 30, parcelas: 2 },
       calagem: { caAlvo: 45, mgAlvo: 15, vAlvo: 50, mt: 15, X: 2 },
       potassio: { kAlvo: 3.5 },
       exportacao: { N: 15, P2O5: 8, K2O: 5.5, Ca: 0.4, Mg: 1, S: 1.2, B: 5, Cu: 2, Mn: 6, Zn: 25 },
     }),
     baseCrop({
       id: 'trigo', nome: 'Trigo (irrigado)', grupo: 'Grãos',
-      fonte: 'Sistema irrigado (NC de P ×1,4, Embrapa Cerrados). V% e Ca/Mg: premissas; exportação: valores de referência — validar.',
+      fonte: 'Sistema irrigado (NC de P ×1,4, Embrapa Cerrados). V% e Ca/Mg: premissas; exportação: valores de referência — validar. Nitrogênio: ≈25 kg N/t de grão (trigo irrigado no Cerrado, Embrapa Trigo/Cerrados: 90–150 kg N/ha), 20 kg N/ha na semeadura, cobertura em 2 parcelas (perfilhamento e alongamento) — premissas a validar.',
       produtividade: { valor: 6, unidade: 't/ha', kgUn: 1000 },
+      nitrogenio: { fator: 25, plantio: 20, parcelas: 2 },
       calagem: { caAlvo: 45, mgAlvo: 15, vAlvo: 50, mt: 15, X: 2 },
       fosforo: { sistema: 'irrigado' },
       exportacao: { N: 22, P2O5: 9, K2O: 5.5, Ca: 0.5, Mg: 1.3, S: 1.5, B: 5, Cu: 4, Mn: 40, Zn: 30 },
     }),
     baseCrop({
       id: 'feijao', nome: 'Feijão', grupo: 'Grãos',
-      fonte: 'V% 60 (premissa para feijão irrigado no Cerrado), mt 20%/X 2 (5ª Aproximação). Exportação por tonelada de grão: valores de referência — validar.',
+      fonte: 'V% 60 (premissa para feijão irrigado no Cerrado), mt 20%/X 2 (5ª Aproximação). Exportação por tonelada de grão: valores de referência — validar. Nitrogênio: ≈30 kg N/t de grão (feijão irrigado: 90–120 kg N/ha, Embrapa Arroz e Feijão), 20 kg N/ha na semeadura, cobertura em 2 parcelas (V3–V4) — premissas a validar.',
       produtividade: { valor: 3.6, unidade: 't/ha', kgUn: 1000 },
+      nitrogenio: { fator: 30, plantio: 20, parcelas: 2 },
       calagem: { caAlvo: 45, mgAlvo: 15, vAlvo: 60, mt: 20, X: 2 },
       potassio: { kAlvo: 4 },
       fosforo: { sistema: 'irrigado' },
       exportacao: { N: 35, P2O5: 9, K2O: 19, Ca: 2, Mg: 1.8, S: 2.5, B: 15, Cu: 9, Mn: 15, Zn: 30 },
     }),
     baseCrop({
+      id: 'arroz', nome: 'Arroz de terras altas', grupo: 'Grãos',
+      fonte: 'Arroz de sequeiro no Cerrado: V% 50 e Ca/Mg na CTC como as demais culturas anuais (Sousa & Lobato 2004; a cultura tolera Al — ajustar se desejar V% menor). P e K pelas mesmas tabelas. Exportação por tonelada de grão: referência — validar. Nitrogênio: ≈20 kg N/t de grão (60–90 kg N/ha em sequeiro; Embrapa Arroz e Feijão), 20 kg N/ha na semeadura, cobertura no perfilhamento — premissas a validar.',
+      produtividade: { valor: 4, unidade: 't/ha', kgUn: 1000 },
+      calagem: { caAlvo: 45, mgAlvo: 15, vAlvo: 50, mt: 20, X: 2 },
+      potassio: { kAlvo: 3.5 },
+      exportacao: { N: 14, P2O5: 6, K2O: 4, Ca: 0.4, Mg: 0.8, S: 1, B: 3, Cu: 2, Mn: 20, Zn: 20 },
+      nitrogenio: { fator: 20, plantio: 20, parcelas: 1 },
+    }),
+    baseCrop({
       id: 'batata', nome: 'Batata', grupo: 'Hortaliças e tuberosas',
-      fonte: 'Ca 50% / Mg 20% na CTC, 30 cm, eficiência 0,75: planilha "Cálculo de Calagem - Batata - P09 AB" (2022). V% 60: Boletim 100 (IAC). P: NC 30 mg/dm³ × 10 kg P₂O₅ e mínimo de 1.000 kg/ha de SSP: planilha de fósforo Wehrmann. Exportação por tonelada de tubérculo: referência — validar.',
+      fonte: 'Ca 50% / Mg 20% na CTC, 30 cm, eficiência 0,75: planilha "Cálculo de Calagem - Batata - P09 AB" (2022). V% 60: Boletim 100 (IAC). P: NC 30 mg/dm³ × 10 kg P₂O₅ e mínimo de 1.000 kg/ha de SSP: planilha de fósforo Wehrmann. Exportação por tonelada de tubérculo: referência — validar. Nitrogênio: ≈4 kg N/t de tubérculo (120–200 kg N/ha; Boletim 100 e 5ª Aproximação), 60 kg N/ha no sulco de plantio, cobertura na amontoa — premissas a validar.',
       produtividade: { valor: 45, unidade: 't/ha', kgUn: 1000 },
+      nitrogenio: { fator: 4, plantio: 60, parcelas: 1 },
       calagem: { caAlvo: 50, mgAlvo: 20, vAlvo: 60, mt: 15, X: 2, prof: 30, efic: 0.75 },
       potassio: { kAlvo: 5, prof: 30 },
       fosforo: { metodo: 'fixo', ncFixo: 30, ctFixo: 10, prof: 20, sistema: 'irrigado' },
@@ -1808,8 +1859,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     }),
     baseCrop({
       id: 'alho', nome: 'Alho', grupo: 'Hortaliças e tuberosas',
-      fonte: 'V% 70, mt 5%/X 3 e B/Zn: referências de hortaliças (Boletim 100; 5ª Aproximação) — validar. Exportação por tonelada de bulbo: referência — validar.',
+      fonte: 'V% 70, mt 5%/X 3 e B/Zn: referências de hortaliças (Boletim 100; 5ª Aproximação) — validar. Exportação por tonelada de bulbo: referência — validar. Nitrogênio: ≈13 kg N/t de bulbo (alho nobre irrigado: 150–250 kg N/ha; Boletim 100 e 5ª Aproximação), 50 kg N/ha no plantio, cobertura em 3 parcelas até a diferenciação dos bulbilhos (excesso favorece superbrotamento) — premissas a validar.',
       produtividade: { valor: 15, unidade: 't/ha', kgUn: 1000 },
+      nitrogenio: { fator: 13, plantio: 50, parcelas: 3 },
       calagem: { caAlvo: 50, mgAlvo: 16, vAlvo: 70, mt: 5, X: 3, prof: 30 },
       potassio: { kAlvo: 5, prof: 30 },
       fosforo: { metodo: 'fixo', ncFixo: 30, ctFixo: 10, sistema: 'irrigado' },
@@ -1818,8 +1870,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     }),
     baseCrop({
       id: 'cebola', nome: 'Cebola', grupo: 'Hortaliças e tuberosas',
-      fonte: 'V% 70, mt 5%/X 3: referências de hortaliças (Boletim 100; 5ª Aproximação) — validar. Exportação por tonelada de bulbo: referência — validar.',
+      fonte: 'V% 70, mt 5%/X 3: referências de hortaliças (Boletim 100; 5ª Aproximação) — validar. Exportação por tonelada de bulbo: referência — validar. Nitrogênio: ≈2,5 kg N/t de bulbo (100–180 kg N/ha; Boletim 100 e 5ª Aproximação), 40 kg N/ha no plantio, cobertura em 3 parcelas até o início da bulbificação — premissas a validar.',
       produtividade: { valor: 70, unidade: 't/ha', kgUn: 1000 },
+      nitrogenio: { fator: 2.5, plantio: 40, parcelas: 3 },
       calagem: { caAlvo: 50, mgAlvo: 16, vAlvo: 70, mt: 5, X: 3, prof: 30 },
       potassio: { kAlvo: 5, prof: 30 },
       fosforo: { metodo: 'fixo', ncFixo: 30, ctFixo: 10, sistema: 'irrigado' },
@@ -1827,8 +1880,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     }),
     baseCrop({
       id: 'cenoura', nome: 'Cenoura', grupo: 'Hortaliças e tuberosas',
-      fonte: 'V% 60, mt 5%/X 3: referências de hortaliças (Boletim 100; 5ª Aproximação) — validar. Exportação por tonelada de raiz: referência — validar.',
+      fonte: 'V% 60, mt 5%/X 3: referências de hortaliças (Boletim 100; 5ª Aproximação) — validar. Exportação por tonelada de raiz: referência — validar. Nitrogênio: ≈2 kg N/t de raiz (90–150 kg N/ha; Boletim 100 e 5ª Aproximação), 30 kg N/ha no plantio, cobertura em 2 parcelas — premissas a validar.',
       produtividade: { valor: 60, unidade: 't/ha', kgUn: 1000 },
+      nitrogenio: { fator: 2, plantio: 30, parcelas: 2 },
       calagem: { caAlvo: 44, mgAlvo: 14, vAlvo: 60, mt: 5, X: 3, prof: 30 },
       potassio: { kAlvo: 5, prof: 30 },
       fosforo: { metodo: 'fixo', ncFixo: 30, ctFixo: 10, sistema: 'irrigado' },
@@ -1837,8 +1891,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     }),
     baseCrop({
       id: 'beterraba', nome: 'Beterraba', grupo: 'Hortaliças e tuberosas',
-      fonte: 'V% 70, mt 5%/X 3: referências de hortaliças (Boletim 100; 5ª Aproximação) — validar. B elevado por sensibilidade da cultura — validar. Exportação por tonelada de raiz: referência — validar.',
+      fonte: 'V% 70, mt 5%/X 3: referências de hortaliças (Boletim 100; 5ª Aproximação) — validar. B elevado por sensibilidade da cultura — validar. Exportação por tonelada de raiz: referência — validar. Nitrogênio: ≈3 kg N/t de raiz (100–150 kg N/ha; Boletim 100 e 5ª Aproximação), 40 kg N/ha no plantio, cobertura em 2 parcelas — premissas a validar.',
       produtividade: { valor: 45, unidade: 't/ha', kgUn: 1000 },
+      nitrogenio: { fator: 3, plantio: 40, parcelas: 2 },
       calagem: { caAlvo: 50, mgAlvo: 16, vAlvo: 70, mt: 5, X: 3, prof: 30 },
       potassio: { kAlvo: 5, prof: 30 },
       fosforo: { metodo: 'fixo', ncFixo: 30, ctFixo: 10, sistema: 'irrigado' },
@@ -2046,6 +2101,34 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     return { ok: true, valor: val, classe: cls, elemento: el, dose: teor > 0 ? el / (teor / 100) : 0, flags: teor > 0 || !el ? [] : ['Produto sem ' + nut] };
   };
 
+  /**
+   * NITROGÊNIO — dose total pela produtividade esperada (kg N/t × t/ha) ou fixa, ajustada pela MO da célula e
+   * pelo crédito da cultura anterior; parte no plantio (descontado o N da fonte fosfatada) e o restante em cobertura.
+   * doseFos: kg/ha da fonte de P já recomendada na célula (para o crédito de N do MAP/DAP).
+   */
+  RE.nitrogen = function (v, n, crop, prodPl, prodCob, prodFos, doseFos) {
+    const mo = num(v.MO);
+    let total = n.metodo === 'fixo' ? (n.doseFixa || 0) : (n.fator || 0) * RE.yieldT(crop);
+    let ajuste = 0, classeMO = null;
+    if (n.ajusteMO && n.ajusteMO.ativo && mo != null) {
+      const classes = (n.ajusteMO.classes || []).slice().sort((a, b) => (+a.ate || 999) - (+b.ate || 999));
+      const cl = classes.find((c) => mo <= (+c.ate || 999)) || classes[classes.length - 1];
+      if (cl) { ajuste = +cl.kg || 0; classeMO = +cl.ate || 999; }
+    }
+    total = pos(total + ajuste - (n.creditoAnterior || 0));
+    if (n.maxTotal > 0) total = Math.min(total, n.maxTotal);
+    const plantioAlvo = Math.min(n.plantio || 0, total);
+    const nFos = n.creditoFosfato && prodFos && prodFos.N > 0 && doseFos > 0 ? doseFos * prodFos.N / 100 : 0;
+    const plantioN = pos(plantioAlvo - nFos);
+    const coberturaN = pos(total - plantioAlvo);
+    const tPl = prodPl ? (prodPl.N || 0) : 0, tCob = prodCob ? (prodCob.N || 0) : 0;
+    return {
+      ok: true, mo, classeMO, ajuste, total, plantioAlvo, nFos, plantioN, coberturaN, parcelas: n.parcelas || 1,
+      dosePl: tPl > 0 ? plantioN / (tPl / 100) : 0, doseCob: tCob > 0 ? coberturaN / (tCob / 100) : 0,
+      flags: [].concat(tPl > 0 ? [] : ['Produto de plantio sem N'], tCob > 0 ? [] : ['Produto de cobertura sem N']),
+    };
+  };
+
   /** Camadas de prescrição (uma por produto) para a cultura. */
   RE.layerDefs = function (crop, products) {
     const P = (id) => products.find((p) => p.id === id);
@@ -2063,10 +2146,16 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       const m = crop.micros[n];
       if (m && m.ativo) defs.push({ id: 'm' + n, modulo: n === 'S' ? 'Enxofre' : 'Micronutrientes', rotulo: 'Fonte de ' + n, produto: P(m.produto), nutriente: n });
     }
+    // nitrogênio: plantio e cobertura são aplicações distintas, nunca fundidas com outras camadas do mesmo produto
+    const ni = crop.nitrogenio;
+    if (ni && ni.metodo && ni.metodo !== 'nenhum') {
+      if ((ni.plantio || 0) > 0) defs.push({ id: 'nitPl', modulo: 'Nitrogênio', rotulo: 'N no plantio', produto: P(ni.produtoPlantio), separado: true });
+      defs.push({ id: 'nitCob', modulo: 'Nitrogênio', rotulo: 'N em cobertura' + ((ni.parcelas || 1) > 1 ? ` (${ni.parcelas} parcelas)` : ''), produto: P(ni.produtoCobertura), separado: true });
+    }
     // o mesmo produto em dois módulos vira uma camada só (ex.: gesso da gessagem + gesso para S)
     const out = [];
     for (const d of defs.filter((x) => x.produto)) {
-      const prev = out.find((x) => x.produto.id === d.produto.id);
+      const prev = d.separado ? null : out.find((x) => x.produto.id === d.produto.id && !x.separado);
       if (prev) { (prev.inclui = prev.inclui || []).push(d.id); prev.rotulo += ' + ' + d.rotulo.toLowerCase(); prev.modulo += ' + ' + d.modulo; }
       else out.push(Object.assign({}, d));
     }
@@ -2114,6 +2203,14 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       if (!m || !m.ativo) continue;
       const r = RE.micro(v, n, m, crop.micros.extrator, P(m.produto)); diag['m' + n] = r; if (r.ok) doses['m' + n] = r.dose;
     }
+    // nitrogênio (depois do P: o N do MAP/DAP é descontado do plantio)
+    const ni = crop.nitrogenio;
+    if (ni && ni.metodo && ni.metodo !== 'nenhum') {
+      const r = RE.nitrogen(v, ni, crop, P(ni.produtoPlantio), P(ni.produtoCobertura), crop.fosforo.metodo !== 'nenhum' ? P(crop.fosforo.produto) : null, doses.fos || 0);
+      diag.nit = r;
+      if ((ni.plantio || 0) > 0) doses.nitPl = r.dosePl;
+      doses.nitCob = r.doseCob;
+    }
     // S por último: desconta o enxofre já fornecido pelos outros produtos (gesso da gessagem, SSP, sulfatos)
     const mS = crop.micros.S;
     if (mS && mS.ativo) {
@@ -2138,6 +2235,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     if (lid === 'gesso') return crop.gessagem.produto;
     if (lid === 'fos') return crop.fosforo.produto;
     if (lid === 'pot') return crop.potassio.produto;
+    if (lid === 'nitPl') return crop.nitrogenio ? crop.nitrogenio.produtoPlantio : null;
+    if (lid === 'nitCob') return crop.nitrogenio ? crop.nitrogenio.produtoCobertura : null;
     if (lid[0] === 'm' && crop.micros[lid.slice(1)]) return crop.micros[lid.slice(1)].produto;
     return null;
   };
@@ -2152,7 +2251,118 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       if (c.mgAlvo > 0 && c.caAlvo / c.mgAlvo < 2) w.push('Meta Ca:Mg menor que 2:1.');
     }
     if (crop.fosforo.metodo === 'tampao' && crop.fosforo.prof !== 20) w.push('A CT da Embrapa vale para a camada 0–20 cm; a dose foi multiplicada por prof/20.');
+    const n = crop.nitrogenio;
+    if (n && n.metodo && n.metodo !== 'nenhum') {
+      const total = n.metodo === 'fixo' ? (n.doseFixa || 0) : (n.fator || 0) * RE.yieldT(crop);
+      if (total <= 0) w.push('Nitrogênio: dose total zero — informe o fator (kg N/t) ou a dose fixa.');
+      if ((n.plantio || 0) > total && total > 0) w.push(`Nitrogênio: o N de plantio (${RE.fmt(n.plantio, 0)} kg/ha) é maior que o total (${RE.fmt(total, 0)} kg/ha); não haverá cobertura.`);
+      if (n.maxTotal > 0 && total > n.maxTotal) w.push(`Nitrogênio: total calculado (${RE.fmt(total, 0)} kg N/ha) limitado ao teto de ${RE.fmt(n.maxTotal, 0)} kg N/ha.`);
+    }
     return w;
+  };
+})(typeof window !== 'undefined' ? window : globalThis);
+
+/* Módulo 45: planilha de insumos (Precos_Insumos.xlsx) → preços e garantias dos produtos */
+(function (root) {
+  'use strict';
+  const RE = root.RE;
+
+  const GAR_KEYS = { cao: 'CaO', mgo: 'MgO', prnt: 'PRNT', p2o5: 'P2O5', k2o: 'K2O', s: 'S', n: 'N', b: 'B', zn: 'Zn', cu: 'Cu', mn: 'Mn' };
+  const CATS = ['corretivo', 'gesso', 'fosfatado', 'potassico', 'nitrogenado', 'enxofre', 'micro'];
+  RE.INSUMOS_CATS = CATS;
+
+  /** Normaliza um título de coluna: minúsculas, sem acento, sem subscritos, só letras/dígitos. */
+  function head(h) {
+    return RE.fold(String(h == null ? '' : h)).replace(/₂/g, '2').replace(/₅/g, '5').replace(/\(.*?\)/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+  }
+  function num(v) {
+    if (v == null || v === '') return null;
+    if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+    return RE.parseNum(v);
+  }
+  /** Data de uma célula: Date, serial do Excel ou texto dd/mm/aaaa. */
+  function dateOf(v) {
+    if (v instanceof Date) return v;
+    if (typeof v === 'number' && v > 20000 && v < 80000) return new Date(Math.round((v - 25569) * 86400000));
+    const m = String(v || '').match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
+    if (m) { const y = m[3].length === 2 ? 2000 + +m[3] : +m[3]; return new Date(y, +m[2] - 1, +m[1]); }
+    return null;
+  }
+
+  /**
+   * Interpreta as linhas (array de arrays) da aba Insumos.
+   * Devolve { atualizadoEm: Date|null, itens: [{id, nome, cat, preco, data, fornecedor, frete, obs, gar:{}}], avisos: [] }
+   */
+  RE.parseInsumos = function (rows) {
+    const avisos = [];
+    let hr = -1, cols = null;
+    for (let i = 0; i < Math.min(rows.length, 30); i++) {
+      const hs = (rows[i] || []).map(head);
+      const iId = hs.indexOf('id'), iPreco = hs.findIndex((h) => /^preco/.test(h));
+      if (iId >= 0 && iPreco >= 0) { hr = i; cols = hs; break; }
+    }
+    if (hr < 0) throw new Error('Não achei a linha de cabeçalho com as colunas "id" e "Preço (R$/t)" na aba Insumos.');
+    const col = (test) => cols.findIndex(test);
+    const C = {
+      id: col((h) => h === 'id'), nome: col((h) => /^produto/.test(h)), cat: col((h) => /^categoria/.test(h)), preco: col((h) => /^preco(?! anterior)/.test(h) && !/anterior/.test(h)),
+      data: col((h) => /^data/.test(h)), fornecedor: col((h) => /^fornecedor/.test(h)), frete: col((h) => /^frete/.test(h)), obs: col((h) => /^observa/.test(h)),
+    };
+    const G = {};
+    for (const [k, key] of Object.entries(GAR_KEYS)) { const i = cols.findIndex((h) => h === k || h === k + ' %' || h.split(' ')[0] === k); if (i >= 0) G[key] = i; }
+    // "Atualizado em" acima do cabeçalho
+    let atualizadoEm = null;
+    for (let i = 0; i < hr; i++) {
+      const r = rows[i] || [];
+      const j = r.findIndex((v) => /atualizad/i.test(String(v || '')));
+      if (j >= 0) { for (let k = j + 1; k < r.length; k++) { const d = dateOf(r[k]); if (d) { atualizadoEm = d; break; } } }
+    }
+    const itens = [];
+    for (let i = hr + 1; i < rows.length; i++) {
+      const r = rows[i] || [];
+      const id = String(r[C.id] == null ? '' : r[C.id]).trim();
+      if (!id || /^legenda/i.test(id)) continue;
+      const it = {
+        id: RE.fold(id).replace(/[^a-z0-9_]+/g, '_'), nome: C.nome >= 0 && r[C.nome] != null ? String(r[C.nome]).trim() : '',
+        cat: C.cat >= 0 && r[C.cat] != null ? RE.fold(String(r[C.cat])).replace(/[^a-z]/g, '') : '',
+        preco: C.preco >= 0 ? num(r[C.preco]) : null, data: C.data >= 0 ? dateOf(r[C.data]) : null,
+        fornecedor: C.fornecedor >= 0 && r[C.fornecedor] != null ? String(r[C.fornecedor]).trim() : '',
+        frete: C.frete >= 0 && r[C.frete] != null ? /^s/i.test(String(r[C.frete])) : null,
+        obs: C.obs >= 0 && r[C.obs] != null ? String(r[C.obs]).trim() : '', gar: {}, linha: i + 1,
+      };
+      for (const [key, j] of Object.entries(G)) { const v = num(r[j]); if (v != null) it.gar[key] = v; }
+      if (it.cat && !CATS.includes(it.cat)) { avisos.push(`Linha ${i + 1} (${id}): categoria "${it.cat}" desconhecida; use ${CATS.join(', ')}.`); it.cat = ''; }
+      if (it.preco != null && it.preco < 0) { avisos.push(`Linha ${i + 1} (${id}): preço negativo ignorado.`); it.preco = null; }
+      itens.push(it);
+    }
+    return { atualizadoEm, itens, avisos };
+  };
+
+  /**
+   * Aplica a planilha à lista de produtos (não altera a lista original).
+   * Devolve { products, alterados: [{id, nome, campos:[...]}], novos: [ids], semPreco: n }
+   */
+  RE.applyInsumos = function (products, parsed) {
+    const out = products.map((p) => Object.assign({}, p));
+    const byId = new Map(out.map((p) => [p.id, p]));
+    const alterados = [], novos = [];
+    let semPreco = 0;
+    for (const it of parsed.itens) {
+      let p = byId.get(it.id);
+      const campos = [];
+      if (!p) {
+        if (!it.cat || !it.nome) continue;            // produto novo precisa de nome e categoria
+        p = { id: it.id, nome: it.nome, cat: it.cat, preco: 0, fonte: 'Planilha de insumos' };
+        out.push(p); byId.set(p.id, p); novos.push(p.id);
+      }
+      if (it.preco != null && it.preco !== (p.preco || 0)) { p.preco = it.preco; campos.push('preço'); }
+      if (it.preco == null && !(p.preco > 0)) semPreco++;
+      for (const [k, v] of Object.entries(it.gar)) if (p[k] !== v) { p[k] = v; campos.push(k); }
+      if (it.nome && novos.includes(p.id)) campos.push('nome');
+      if (it.cat && it.cat !== p.cat && novos.includes(p.id)) campos.push('categoria');
+      p.cotacao = { data: it.data ? it.data.toISOString() : (parsed.atualizadoEm ? parsed.atualizadoEm.toISOString() : null), fornecedor: it.fornecedor || '', frete: it.frete, obs: it.obs || '' };
+      if (campos.length) alterados.push({ id: p.id, nome: p.nome, campos });
+    }
+    return { products: out, alterados, novos, semPreco };
   };
 })(typeof window !== 'undefined' ? window : globalThis);
 
@@ -2161,7 +2371,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   'use strict';
   const RE = root.RE;
 
-  RE.DEFAULT_RULE = () => ({ min: 0, minModo: 'zerar', max: 0, passo: 0, fixa: null, orc: { ativo: false, modo: 'proporcional', alvo: 0 } });
+  RE.DEFAULT_RULE = () => ({ min: 0, minModo: 'zerar', max: 0, passo: 0, fixa: null, orc: { ativo: false, modo: 'proporcional', alvo: 0 }, off: false, motivo: '' });
 
   /**
    * Aplica as regras de edição a uma taxa bruta (kg/ha).
@@ -2273,8 +2483,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         const cell = new Float32Array(raw.length);
         for (let i = 0; i < raw.length; i++) { const r = RE.applyRule(raw[i], rule, adj); cell[i] = r == null ? NaN : r; }
         const sum = RE.summarizeRates(cell, cellHa, d.produto.preco || 0);
-        fin[d.id] = { cell, sum, budget, adj, kg };
-        total += sum.custoHa || 0;
+        fin[d.id] = { cell, sum, budget, adj, kg, off: !!rule.off };
+        if (!rule.off) total += sum.custoHa || 0;   // camada desligada (não aplicar) não entra no orçamento total
       }
       return { fin, total };
     };
@@ -2873,10 +3083,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   const nivel = (below) => (below == null ? null : below > 50 ? 'low' : below > 10 ? 'mid' : 'ok');
 
   /** Estilo de cada camada: grupo de cor do módulo e símbolo do elemento. */
-  const MOD = { cal: 'cal', calCa: 'cal', calMg: 'cal', gesso: 'ges', fos: 'fos', pot: 'pot', mS: 'mic', mB: 'mic', mZn: 'mic', mCu: 'mic', mMn: 'mic' };
-  const ELEM = { cal: 'Ca·Mg', calCa: 'Ca', calMg: 'Mg', gesso: 'S', fos: 'P', pot: 'K', mS: 'S', mB: 'B', mZn: 'Zn', mCu: 'Cu', mMn: 'Mn' };
+  const MOD = { cal: 'cal', calCa: 'cal', calMg: 'cal', gesso: 'ges', fos: 'fos', pot: 'pot', nitPl: 'nit', nitCob: 'nit', mS: 'mic', mB: 'mic', mZn: 'mic', mCu: 'mic', mMn: 'mic' };
+  const ELEM = { cal: 'Ca·Mg', calCa: 'Ca', calMg: 'Mg', gesso: 'S', fos: 'P', pot: 'K', nitPl: 'N', nitCob: 'N', mS: 'S', mB: 'B', mZn: 'Zn', mCu: 'Cu', mMn: 'Mn' };
   RE.layerStyle = (id) => ({ mod: MOD[id] || 'mic', el: ELEM[id] || String(id) });
-  RE.MOD_COLORS = { cal: '#b7791f', ges: '#5f78c9', fos: '#d4603a', pot: '#8a5cc9', mic: '#16958a' };
+  RE.MOD_COLORS = { cal: '#b7791f', ges: '#5f78c9', fos: '#d4603a', pot: '#8a5cc9', nit: '#5b8c2a', mic: '#16958a' };
 
   const MICRO_NOME = { B: 'Boro', Zn: 'Zinco', Cu: 'Cobre', Mn: 'Manganês', S: 'Enxofre' };
   const EXTRATOR = { mehlich: 'Mehlich-1', dtpa: 'DTPA', resina: 'resina' };
@@ -2892,6 +3102,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       fosNC: new Float32Array(n).fill(NaN), fosCT: new Float32Array(n).fill(NaN), fosManut: null,
       potAlvo: new Float32Array(n).fill(NaN), potManut: null,
       cls: {}, sOutros: new Float32Array(n).fill(NaN), sElem: new Float32Array(n).fill(NaN),
+      nitTotal: new Float32Array(n).fill(NaN), nitAjuste: new Float32Array(n).fill(NaN), nitFos: new Float32Array(n).fill(NaN), nit: null,
     };
     for (const nu of ['S', 'B', 'Zn', 'Cu', 'Mn']) o.cls[nu] = new Int8Array(n).fill(-1);
     for (let q = 0; q < n; q++) {
@@ -2904,6 +3115,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       if (d.pot && d.pot.ok) { o.potAlvo[q] = d.pot.alvoMg; o.potManut = d.pot.manut; }
       for (const nu of ['B', 'Zn', 'Cu', 'Mn', 'S']) { const r = d['m' + nu]; if (r && r.ok) o.cls[nu][q] = r.classe; }
       if (d.mS && d.mS.ok) { o.sOutros[q] = d.mS.sOutros || 0; o.sElem[q] = d.mS.elemento; }
+      if (d.nit && d.nit.ok) { o.nitTotal[q] = d.nit.total; o.nitAjuste[q] = d.nit.ajuste; o.nitFos[q] = d.nit.nFos; o.nit = d.nit; }
     }
     return o;
   };
@@ -3169,6 +3381,28 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             else pg.efeito.push(`K estimado após a correção: média de ${fmt(stat(kA).mean, 0)} mg/dm³; ${pc(share(kA, (v, i) => ok(diag.potAlvo[i]) && v >= diag.potAlvo[i] - 0.5))} da área no NC ou acima.`);
             if (man > 0) pg.efeito.push(`Repõe ${fmt(man, 0)} kg/ha de K₂O exportados pela colheita prevista.`);
           }
+        } else if (id === 'nitPl' || id === 'nitCob') {
+          const ni = crop.nitrogenio || {};
+          const sT = stat(diag.nitTotal), sAj = stat(diag.nitAjuste), sMO = stat(A.MO), sF = stat(diag.nitFos);
+          const base = ni.metodo === 'fixo' ? ni.doseFixa : (ni.fator || 0) * yieldT;
+          pg.objetivo = id === 'nitPl' ? 'N de arranque no plantio' : `N em cobertura${(ni.parcelas || 1) > 1 ? ` em ${ni.parcelas} parcelas` : ''}`;
+          pg.porque.push(`Necessidade total de N: ${ni.metodo === 'fixo' ? `dose fixa de ${fmt(ni.doseFixa, 0)} kg N/ha` : `${fmt(ni.fator, 0)} kg de N por tonelada × ${fmt(yieldT, 2)} t/ha esperadas = ${fmt(base, 0)} kg N/ha`}${ni.creditoAnterior ? `, menos ${fmt(ni.creditoAnterior, 0)} kg N/ha de crédito da cultura anterior` : ''}${sT.n ? ` → ${fmt(sT.mean, 0)} kg N/ha em média (${rng(sT, 0, 'kg/ha')})` : ''}.`);
+          if (ni.ajusteMO && ni.ajusteMO.ativo) pg.porque.push(sMO.n ? `Ajuste pela matéria orgânica: MO média de ${fmt(sMO.mean, 2)}% (${rng(sMO, 2, '%')}) → ajuste médio de ${fmt(sAj.mean, 0)} kg N/ha (${rng(sAj, 0, 'kg/ha')}); é o que faz a dose variar no mapa.` : 'Ajuste pela matéria orgânica ativo, mas o laudo não tem MO: sem ajuste.');
+          if (id === 'nitPl') {
+            pg.porque.push(`Plantio: ${fmt(ni.plantio, 0)} kg N/ha${sF.n && sF.mean > 0 ? `, descontados em média ${fmt(sF.mean, 0)} kg N/ha já contidos na fonte fosfatada (${PR(crop.fosforo.produto).nome || 'MAP/DAP'})` : ''}.`);
+          } else {
+            pg.porque.push(`Cobertura: o que falta depois do plantio (${fmt(ni.plantio || 0, 0)} kg N/ha)${(ni.parcelas || 1) > 1 ? `, dividida em ${ni.parcelas} aplicações iguais` : ''}; a dose do mapa é o total da cobertura.`);
+          }
+          pg.metodo = `Nitrogênio pela produtividade esperada (kg N/t × t/ha) com ajuste pela MO da célula e créditos; parte no plantio e o restante em cobertura — referências: Sousa & Lobato (Embrapa Cerrados, 2004), Manual RS/SC (CQFS 2016), Boletim 100 (IAC); parâmetros da cultura a validar.`;
+          if (opts.formulas) {
+            pg.formula = ['N total (kg/ha) = fator × produtividade (ou dose fixa) + ajuste pela MO − crédito da cultura anterior', 'N plantio = mín(plantio, total) − N da fonte fosfatada · N cobertura = total − plantio', 'Dose (kg/ha) = N / teor de N do produto'];
+            const cls = (ni.ajusteMO && ni.ajusteMO.classes || []).map((c, i, arr) => `${i ? '>' + fmt(arr[i - 1].ate, 1) + '–' : '≤'}${c.ate >= 999 ? '' : fmt(c.ate, 1) + '%'}${c.ate >= 999 ? 'acima' : ''}: ${c.kg >= 0 ? '+' : ''}${fmt(c.kg, 0)}`).join(' · ');
+            pg.params.push(['Fator / dose', ni.metodo === 'fixo' ? `${fmt(ni.doseFixa, 0)} kg N/ha (fixa)` : `${fmt(ni.fator, 1)} kg N por t · produtividade ${fmt(yieldT, 2)} t/ha`], ['Plantio', `${fmt(ni.plantio || 0, 0)} kg N/ha${ni.creditoFosfato ? ' (desconta N do MAP/DAP)' : ''}`], ['Ajuste por MO', ni.ajusteMO && ni.ajusteMO.ativo ? cls + ' kg N/ha' : 'desligado'], ['Crédito anterior', `${fmt(ni.creditoAnterior || 0, 0)} kg N/ha`], ['Fonte', `${prod.nome}: N ${fmt(prod.N, 1)}%${prod.S ? ` · S ${fmt(prod.S, 1)}%` : ''}`]);
+          }
+          if (opts.efeito) {
+            const nKg = meanApplied(F.cell, (i, r) => r * (prod.N || 0) / 100);
+            pg.efeito.push(`Fornece em média ${fmt(nKg, 0)} kg/ha de N nas áreas aplicadas (${pc(s.pctAp)} do talhão)${prod.S ? `, mais ${fmt(meanApplied(F.cell, (i, r) => r * prod.S / 100), 0)} kg/ha de S` : ''}. O N não fica no solo: a resposta é na cultura, não no laudo seguinte.`);
+          }
         } else if (id[0] === 'm') {
           const nu = id.slice(1), cfg = mic[nu];
           const sN = stat(A[nu]), cd = classDist(diag.cls[nu]), l = lim[nu];
@@ -3223,7 +3457,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   B.AUTOR = 'Wildonvay Balieiro Filho';
   B.NOME = 'Prescrição de Fertilidade';
   B.TAGLINE = 'Uma nova plataforma';
-  B.VERSAO = 'v2.3';
+  B.VERSAO = 'v2.5';
 
   // Logo 'folha de dois lados' (G1, 21/10/2026): faixas do dourado ao verde centradas na base (centro do pivô),
   // nervura = lança, base dissolvida em pixels alinhados. Gerado por design/v3/lados.py (semente 51).
@@ -3797,7 +4031,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 (function () {
   'use strict';
   const CP = (window.CAMPO = {});
-  CP.VERSAO = 'v2.3';
+  CP.VERSAO = 'v2.5';
 
   let dbP = null;
   function idb() {
@@ -3899,7 +4133,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     // prescrição
     prog('Calculando a prescrição…', 0.82);
     await new Promise((r) => setTimeout(r, 0));
-    const crop = data.crop ? RE.deepClone(data.crop) : RE.deepClone(RE.CROPS_DEFAULT.find((c) => c.id === data.cropId) || RE.CROPS_DEFAULT[0]);
+    const crop = RE.ensureCrop(data.crop ? RE.deepClone(data.crop) : RE.deepClone(RE.CROPS_DEFAULT.find((c) => c.id === data.cropId) || RE.CROPS_DEFAULT[0]));
     const products = Array.isArray(data.products) && data.products.length ? data.products : RE.PRODUCTS_DEFAULT.map((p) => Object.assign({}, p));
     const avisos = [];
     if (!Array.isArray(data.products) || !data.products.length) avisos.push('O trabalho foi salvo por uma versão anterior da plataforma: os produtos e preços usados são os padrão, e os custos podem diferir.');
@@ -3922,10 +4156,15 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const layers = [];
     for (const k of present(sup)) layers.push(layerOf('sup', k, sup.attrs[k], false, { metodo: (sup.info[k] || {}).method || 'derivado' }));
     if (sub) for (const k of present(sub)) layers.push(layerOf('sub', k, sub.attrs[k], false, { metodo: (sub.info[k] || {}).method || 'derivado' }));
-    const defs = rx ? rx.defs.filter((d) => fin[d.id] && fin[d.id].sum.totalKg > 0) : [];
-    for (const d of defs) layers.push(layerOf('rx', d.id, fin[d.id].cell, true, { label: d.produto.nome, short: d.produto.nome, modulo: d.modulo, sum: fin[d.id].sum, preco: d.produto.preco || null }));
-    // pontos de coleta com laudo e doses finais
+    // camadas desligadas na plataforma ("não aplicar") ficam fora do celular, como ficam fora do resumo e das exportações
     const ruleOf = (id) => (data.rules && data.rules[id]) || RE.DEFAULT_RULE();
+    const desligadas = rx ? rx.defs.filter((d) => ruleOf(d.id).off) : [];
+    const defs = rx ? rx.defs.filter((d) => !ruleOf(d.id).off && fin[d.id] && fin[d.id].sum.totalKg > 0) : [];
+    // N no plantio e N em cobertura são aplicações distintas do mesmo produto: o rótulo leva o nome da aplicação
+    const nomeRx = (d) => (d.separado ? `${d.produto.nome} · ${d.rotulo}` : d.produto.nome);
+    for (const d of defs) layers.push(layerOf('rx', d.id, fin[d.id].cell, true, { label: nomeRx(d), short: nomeRx(d), modulo: d.separado ? d.rotulo : d.modulo, sum: fin[d.id].sum, preco: d.produto.preco || null }));
+    if (desligadas.length) avisos.push('Não aplicar (decisão na plataforma): ' + desligadas.map((d) => nomeRx(d) + (ruleOf(d.id).motivo ? ` — ${ruleOf(d.id).motivo}` : '')).join('; ') + '.');
+    // pontos de coleta com laudo e doses finais
     const points = samples.map((s, i) => {
       const doses = {};
       for (const d of defs) { const raw = rx.point[d.id][i]; const F = fin[d.id]; const v = RE.applyRule(raw == null ? null : raw * F.kg, ruleOf(d.id), F.adj); if (v != null) doses[d.id] = v; }
